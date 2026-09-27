@@ -49,6 +49,12 @@
   .sec{margin-top:16px;font-size:12px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:.05em}
   .num{text-align:right;font-variant-numeric:tabular-nums}
   details{margin-top:14px;color:var(--muted);font-size:12px}
+  .tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+  .tab{background:transparent;color:var(--muted);border-radius:7px 7px 0 0;border-bottom:2px solid transparent}
+  .tab.on{color:var(--brand);border-bottom-color:var(--brand)}
+  tr.sel{background:var(--hover)}
+  .neg{color:var(--err)}
+  tfoot td{font-weight:700;border-top:2px solid var(--line)}
   .hidden{display:none}
 </style>
 </head>
@@ -82,6 +88,50 @@
 
   <!-- CONSULTA -->
   <section class="hidden" id="telaConsulta">
+    <nav class="tabs">
+      <button class="tab on" data-aba="abaProdutos">Produtos</button>
+      <button class="tab" data-aba="abaArmazens">Saldos por armazém</button>
+    </nav>
+
+    <!-- ABA: SALDOS POR ARMAZÉM (SB2) -->
+    <div class="hidden" id="abaArmazens">
+      <div class="card">
+        <div class="row" style="justify-content:space-between">
+          <div><b>Resumo por armazém</b> <span class="who">— SB2, todos os registros (inclui zerados e negativos)</span></div>
+          <button id="btnCarregarSB2">Atualizar saldos</button>
+        </div>
+        <div class="msg" id="msgArm"></div>
+        <div class="tbl">
+          <table>
+            <thead><tr>
+              <th>Filial</th><th>Armazém</th><th>Descrição</th><th class="num">Produtos</th><th class="num">Com saldo</th>
+              <th class="num">Negativos</th><th class="num">Saldo total</th><th class="num">Valor em estoque</th>
+            </tr></thead>
+            <tbody id="listaArm"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card detail hidden" id="detArm">
+        <div class="row" style="justify-content:space-between">
+          <h3 id="detArmTitulo" style="margin:0"></h3>
+          <input id="filtroArm" placeholder="Filtrar código ou descrição" style="max-width:280px">
+        </div>
+        <div class="msg" id="msgDetArm"></div>
+        <div class="tbl">
+          <table>
+            <thead><tr>
+              <th>Código</th><th>Descrição</th><th>UM</th><th class="num">Saldo</th><th class="num">Reservado</th>
+              <th class="num">Empenhado</th><th class="num">Disponível</th><th class="num">Custo médio</th><th class="num">Valor</th>
+            </tr></thead>
+            <tbody id="listaDetArm"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ABA: PRODUTOS -->
+    <div id="abaProdutos">
     <div class="card">
       <form class="row search" id="formBusca">
         <input id="termo" placeholder="Código ou parte da descrição do produto" autofocus>
@@ -103,6 +153,7 @@
     </div>
 
     <div class="card detail hidden" id="detalhe"></div>
+    </div>
   </section>
 </main>
 
@@ -182,7 +233,11 @@ $('formLogin').addEventListener('submit', async e => {
   }finally{ $('btnEntrar').disabled = false; }
 });
 
-$('btnSair').addEventListener('click', () => { sessao = null; trocarTela(false); });
+$('btnSair').addEventListener('click', () => {
+  sessao = null; sb2Cache = null; armSel = null; armDesc = {};
+  $('listaArm').innerHTML = ''; $('detArm').classList.add('hidden'); msg('msgArm','');
+  trocarTela(false);
+});
 
 function trocarTela(logado){
   $('telaLogin').classList.toggle('hidden', logado);
@@ -271,6 +326,119 @@ $('lista').addEventListener('click', async e => {
     box.scrollIntoView({behavior:'smooth', block:'start'});
   }catch(err){ if (err.message !== '401') box.innerHTML = `<div class="msg err">${esc(err.message)}</div>`; }
 });
+
+/* ===================== Abas ===================== */
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
+  $('abaProdutos').classList.toggle('hidden', b.dataset.aba !== 'abaProdutos');
+  $('abaArmazens').classList.toggle('hidden', b.dataset.aba !== 'abaArmazens');
+  if (b.dataset.aba === 'abaArmazens' && !sb2Cache) carregarSB2();
+}));
+
+/* ===================== Saldos por armazém (SB2) ===================== */
+const SB2_PAGE = 500, SB2_MAX_PAGES = 200;
+let sb2Cache = null;        // [{fil, loc, cod, qatu, res, emp, cm1, vatu}]
+let armDesc = {};           // NNR: código do armazém -> descrição
+let armSel = null;          // {fil, loc}
+const descProd = {};        // cache SB1: cod -> {desc, um}
+
+$('btnCarregarSB2').addEventListener('click', () => carregarSB2());
+$('filtroArm').addEventListener('input', () => renderDetArm());
+
+async function lerTudo(params, onPag){
+  const out = [];
+  for (let page = 1; page <= SB2_MAX_PAGES; page++){
+    const j = await api({...params, page, pageSize:SB2_PAGE});
+    const itens = j.items || [];
+    out.push(...itens); onPag && onPag(out.length);
+    if (!itens.length || j.hasNext === false || (j.hasNext === undefined && itens.length < SB2_PAGE)) break;
+  }
+  return out;
+}
+
+async function carregarSB2(){
+  $('btnCarregarSB2').disabled = true; $('detArm').classList.add('hidden'); armSel = null;
+  msg('msgArm','Lendo SB2…');
+  try{
+    const rows = await lerTudo(
+      {tables:'SB2', fields:'B2_FILIAL,B2_LOCAL,B2_COD,B2_QATU,B2_RESERVA,B2_QEMP,B2_CM1,B2_VATU1',
+       where:"SB2.D_E_L_E_T_ = ' '", order:'B2_FILIAL,B2_LOCAL,B2_COD'},
+      n => msg('msgArm',`Lendo SB2… ${n.toLocaleString('pt-BR')} registros`));
+    sb2Cache = rows.map(x => ({fil:v(x,'B2_FILIAL'), loc:v(x,'B2_LOCAL'), cod:v(x,'B2_COD'),
+      qatu:+v(x,'B2_QATU')||0, res:+v(x,'B2_RESERVA')||0, emp:+v(x,'B2_QEMP')||0, cm1:+v(x,'B2_CM1')||0, vatu:+v(x,'B2_VATU1')||0}));
+    // Descrição dos armazéns (NNR) — opcional
+    try{
+      const nnr = await lerTudo({tables:'NNR', fields:'NNR_CODIGO,NNR_DESCRI', where:"NNR.D_E_L_E_T_ = ' '"});
+      nnr.forEach(n => armDesc[v(n,'NNR_CODIGO')] = v(n,'NNR_DESCRI'));
+    }catch{ /* sem NNR: mostra só o código */ }
+    renderResumo();
+    msg('msgArm', `${sb2Cache.length.toLocaleString('pt-BR')} registros SB2 lidos · atualizado às ${new Date().toLocaleTimeString('pt-BR')}`, 'ok');
+  }catch(err){ if (err.message !== '401') msg('msgArm', err.message, 'err'); }
+  finally{ $('btnCarregarSB2').disabled = false; }
+}
+
+function renderResumo(){
+  const g = new Map();
+  for (const r of sb2Cache){
+    const k = r.fil + '|' + r.loc;
+    const a = g.get(k) || {fil:r.fil, loc:r.loc, n:0, pos:0, neg:0, qtd:0, val:0};
+    a.n++; if (r.qatu > 0) a.pos++; if (r.qatu < 0) a.neg++; a.qtd += r.qatu; a.val += r.vatu;
+    g.set(k, a);
+  }
+  const arr = [...g.values()];
+  const tot = arr.reduce((t,a) => ({n:t.n+a.n, pos:t.pos+a.pos, neg:t.neg+a.neg, qtd:t.qtd+a.qtd, val:t.val+a.val}), {n:0,pos:0,neg:0,qtd:0,val:0});
+  $('listaArm').innerHTML = arr.length ? arr.map(a => `
+    <tr data-fil="${esc(a.fil)}" data-loc="${esc(a.loc)}">
+      <td>${esc(a.fil)}</td><td><b>${esc(a.loc)}</b></td><td>${esc(armDesc[a.loc] || '')}</td>
+      <td class="num">${a.n.toLocaleString('pt-BR')}</td><td class="num">${a.pos.toLocaleString('pt-BR')}</td>
+      <td class="num ${a.neg ? 'neg' : ''}">${a.neg.toLocaleString('pt-BR')}</td>
+      <td class="num ${a.qtd < 0 ? 'neg' : ''}">${fmtNum(a.qtd,2)}</td><td class="num">${fmtNum(a.val,2)}</td>
+    </tr>`).join('') + `
+    <tr style="cursor:default"><td colspan="3"><b>Total geral</b></td><td class="num"><b>${tot.n.toLocaleString('pt-BR')}</b></td>
+      <td class="num"><b>${tot.pos.toLocaleString('pt-BR')}</b></td><td class="num"><b>${tot.neg.toLocaleString('pt-BR')}</b></td>
+      <td class="num"><b>${fmtNum(tot.qtd,2)}</b></td><td class="num"><b>${fmtNum(tot.val,2)}</b></td></tr>`
+    : '<tr><td colspan="8" style="color:var(--muted)">Nenhum registro na SB2.</td></tr>';
+}
+
+$('listaArm').addEventListener('click', async e => {
+  const tr = e.target.closest('tr[data-loc]'); if (!tr) return;
+  document.querySelectorAll('#listaArm tr').forEach(x => x.classList.toggle('sel', x === tr));
+  armSel = {fil:tr.dataset.fil, loc:tr.dataset.loc};
+  $('filtroArm').value = '';
+  $('detArmTitulo').textContent = `Armazém ${armSel.loc}${armDesc[armSel.loc] ? ' — ' + armDesc[armSel.loc] : ''} · Filial ${armSel.fil || '—'}`;
+  $('detArm').classList.remove('hidden');
+  renderDetArm();
+  $('detArm').scrollIntoView({behavior:'smooth', block:'start'});
+  // Busca descrição/UM dos produtos (SB1) em lotes
+  const faltam = [...new Set(itensArm().map(r => r.cod))].filter(c => !descProd[c]);
+  try{
+    for (let i = 0; i < faltam.length; i += 100){
+      msg('msgDetArm', `Carregando descrições… ${Math.min(i+100, faltam.length)}/${faltam.length}`);
+      const inList = faltam.slice(i, i+100).map(c => `'${sqlLit(c)}'`).join(',');
+      const j = await api({tables:'SB1', fields:'B1_COD,B1_DESC,B1_UM', where:`SB1.D_E_L_E_T_ = ' ' AND B1_COD IN (${inList})`, page:1, pageSize:100});
+      (j.items || []).forEach(p => descProd[v(p,'B1_COD')] = {desc:v(p,'B1_DESC'), um:v(p,'B1_UM')});
+      renderDetArm();
+    }
+    msg('msgDetArm','');
+  }catch(err){ if (err.message !== '401') msg('msgDetArm', 'Descrições não carregadas: ' + err.message, 'err'); }
+});
+
+function itensArm(){ return armSel ? sb2Cache.filter(r => r.fil === armSel.fil && r.loc === armSel.loc) : []; }
+
+function renderDetArm(){
+  const f = $('filtroArm').value.trim().toUpperCase();
+  const rows = itensArm().filter(r => !f || r.cod.toUpperCase().includes(f) || (descProd[r.cod]?.desc || '').toUpperCase().includes(f));
+  const t = rows.reduce((s,r) => ({q:s.q+r.qatu, val:s.val+r.vatu}), {q:0, val:0});
+  $('listaDetArm').innerHTML = rows.length ? rows.map(r => {
+    const disp = r.qatu - r.res - r.emp, d = descProd[r.cod] || {};
+    return `<tr><td>${esc(r.cod)}</td><td>${esc(d.desc || '')}</td><td>${esc(d.um || '')}</td>
+      <td class="num ${r.qatu < 0 ? 'neg' : ''}">${fmtNum(r.qatu,2)}</td><td class="num">${fmtNum(r.res,2)}</td>
+      <td class="num">${fmtNum(r.emp,2)}</td><td class="num ${disp < 0 ? 'neg' : ''}">${fmtNum(disp,2)}</td>
+      <td class="num">${fmtNum(r.cm1,4)}</td><td class="num">${fmtNum(r.vatu,2)}</td></tr>`;
+  }).join('') + `<tr><td colspan="3"><b>Total (${rows.length.toLocaleString('pt-BR')} itens)</b></td>
+      <td class="num"><b>${fmtNum(t.q,2)}</b></td><td colspan="4"></td><td class="num"><b>${fmtNum(t.val,2)}</b></td></tr>`
+    : '<tr><td colspan="9" style="color:var(--muted)">Nenhum produto.</td></tr>';
+}
 
 // Lembra URL e empresa/filial neste navegador (nunca a senha)
 try{
