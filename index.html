@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consulta de Produtos · Protheus</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --ink:#1d2733; --muted:#5e6b78; --line:#dde3e9;
+    --brand:#0c6b8a; --brand-ink:#fff; --ok:#1f8a4c; --err:#b3261e; --warn:#a15c00; --hover:#eef4f7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#111820; --card:#18222c; --ink:#e4ebf1; --muted:#9aa8b5; --line:#2a3845;
+      --brand:#3aa7c9; --brand-ink:#08141b; --ok:#5cc98b; --err:#ff8a80; --warn:#f0b35a; --hover:#1f2c38; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 "Segoe UI",system-ui,sans-serif}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+  header h1{font-size:17px;margin:0}
+  header .who{color:var(--muted);font-size:13px}
+  main{max-width:1200px;margin:0 auto;padding:20px 16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px}
+  .login{max-width:420px;margin:40px auto}
+  .login h2{margin:0 0 4px;font-size:20px}
+  .login p{margin:0 0 18px;color:var(--muted)}
+  label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:12px 0 4px}
+  input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);font:inherit}
+  input:focus{outline:2px solid var(--brand);outline-offset:-1px}
+  button{padding:9px 16px;border:0;border-radius:7px;background:var(--brand);color:var(--brand-ink);font:inherit;font-weight:600;cursor:pointer}
+  button.ghost{background:transparent;color:var(--brand);border:1px solid var(--line)}
+  button:disabled{opacity:.55;cursor:default}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .search input{flex:1;min-width:220px}
+  .msg{margin-top:12px;font-size:13px}
+  .msg.err{color:var(--err)} .msg.ok{color:var(--ok)}
+  table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--muted);font-weight:600;font-size:12px;background:var(--bg);position:sticky;top:0}
+  tbody tr{cursor:pointer} tbody tr:hover{background:var(--hover)}
+  .tbl{overflow-x:auto;max-height:60vh}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600}
+  .tag.b{background:color-mix(in srgb,var(--err) 15%,transparent);color:var(--err)}
+  .tag.a{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+  .pager{display:flex;justify-content:space-between;align-items:center;margin-top:12px;color:var(--muted)}
+  .detail{margin-top:18px}
+  .detail h3{margin:0 0 10px;font-size:16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px 18px}
+  .grid div span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+  .sec{margin-top:16px;font-size:12px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:.05em}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  details{margin-top:14px;color:var(--muted);font-size:12px}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Consulta de Produtos · Protheus</h1>
+  <div class="row"><span class="who" id="who"></span><button class="ghost hidden" id="btnSair">Sair</button></div>
+</header>
+
+<main>
+  <!-- LOGIN -->
+  <section class="card login" id="telaLogin">
+    <h2>Entrar</h2>
+    <p>Use seu usuário e senha do Protheus.</p>
+    <form id="formLogin">
+      <label for="url">Servidor REST</label>
+      <input id="url" placeholder="https://servidor:porta/rest" required>
+      <label for="usr">Usuário</label>
+      <input id="usr" autocomplete="username" required>
+      <label for="pwd">Senha</label>
+      <input id="pwd" type="password" autocomplete="current-password" required>
+      <details>
+        <summary>Opções avançadas</summary>
+        <label for="tenant">Empresa,Filial (tenantId — opcional)</label>
+        <input id="tenant" placeholder="ex.: 01,01 — recomendado (Preparein=all)">
+      </details>
+      <div class="row" style="margin-top:18px"><button id="btnEntrar" type="submit">Entrar</button></div>
+      <div class="msg" id="msgLogin"></div>
+    </form>
+  </section>
+
+  <!-- CONSULTA -->
+  <section class="hidden" id="telaConsulta">
+    <div class="card">
+      <form class="row search" id="formBusca">
+        <input id="termo" placeholder="Código ou parte da descrição do produto" autofocus>
+        <button type="submit">Buscar</button>
+      </form>
+      <div class="msg" id="msgBusca"></div>
+      <div class="tbl">
+        <table>
+          <thead><tr>
+            <th>Código</th><th>Descrição</th><th>Tipo</th><th>UM</th><th>Grupo</th><th>NCM</th><th>Origem</th><th>Situação</th>
+          </tr></thead>
+          <tbody id="lista"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span id="pagInfo"></span>
+        <div class="row"><button class="ghost" id="btnAnt" disabled>Anterior</button><button class="ghost" id="btnProx" disabled>Próxima</button></div>
+      </div>
+    </div>
+
+    <div class="card detail hidden" id="detalhe"></div>
+  </section>
+</main>
+
+<script>
+/* ===================== Configuração ===================== */
+// Endpoint genérico de consulta do framework Protheus (GENERICQUERY).
+const QUERY_PATH = '/api/framework/v1/genericQuery';
+const TOKEN_PATH = '/api/oauth2/v1/token';
+const PAGE_SIZE  = 20;
+
+const CAMPOS_LISTA = ['B1_COD','B1_DESC','B1_TIPO','B1_UM','B1_GRUPO','B1_POSIPI','B1_ORIGEM','B1_MSBLQL'];
+const CAMPOS_DETALHE = {
+  'Cadastro básico': {B1_COD:'Código',B1_DESC:'Descrição',B1_TIPO:'Tipo',B1_UM:'Unidade',B1_SEGUM:'2ª Unidade',
+                      B1_GRUPO:'Grupo',B1_LOCPAD:'Armazém padrão',B1_MSBLQL:'Bloqueado'},
+  'Fiscal':          {B1_POSIPI:'NCM',B1_ORIGEM:'Origem',B1_CEST:'CEST',B1_EX_NCM:'Exceção NCM',
+                      B1_IPI:'Alíq. IPI',B1_PICM:'Alíq. ICMS',B1_GRTRIB:'Grupo tributário'},
+};
+const CAMPOS_SB2 = ['B2_FILIAL','B2_LOCAL','B2_QATU','B2_RESERVA','B2_QEMP','B2_CM1','B2_VATU1'];
+
+/* ===================== Estado (somente em memória) ===================== */
+let sessao = null;          // {base, token, refresh, expira, usuario, tenant}
+let pagina = 1, termoAtual = '';
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sqlLit = s => String(s).replace(/'/g, "''").replace(/[;\\]/g, '');   // evita quebra de SQL no filtro
+const fmtNum = (v, d=2) => (v === '' || v == null || isNaN(v)) ? '' : Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+/* ===================== Autenticação OAuth2 do Protheus ===================== */
+async function obterToken(base, params){
+  const qs = new URLSearchParams(params).toString();
+  const r = await fetch(`${base}${TOKEN_PATH}?${qs}`, {method:'POST'});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) throw new Error(j.message || j.error_description || `Falha na autenticação (HTTP ${r.status})`);
+  return j;
+}
+
+$('formLogin').addEventListener('submit', async e => {
+  e.preventDefault();
+  const base = $('url').value.trim().replace(/\/+$/,'');
+  const usuario = $('usr').value.trim();
+  $('btnEntrar').disabled = true;
+  try{
+    const tenant = $('tenant').value.trim();
+    let modo;
+    // Passo 1: token OAuth2 do Protheus
+    try{
+      msg('msgLogin','1/2 Solicitando token OAuth2…');
+      const t = await obterToken(base, {grant_type:'password', username:usuario, password:$('pwd').value});
+      sessao = {base, usuario, tenant, auth:`Bearer ${t.access_token}`,
+                refresh:t.refresh_token, expira:Date.now() + (t.expires_in||3600)*1000};
+      modo = 'Token OAuth2';
+    }catch(errToken){
+      if (String(errToken.message).includes('Failed to fetch')) throw errToken;
+      // Passo 2: Basic Auth (SECURITY=1 também aceita). Valida com uma consulta mínima.
+      msg('msgLogin',`Token não obtido (${errToken.message}). 2/2 Tentando Basic…`);
+      const basic = 'Basic ' + btoa(unescape(encodeURIComponent(`${usuario}:${$('pwd').value}`)));
+      const h = {Authorization:basic}; if (tenant) h.tenantId = tenant;
+      const r = await fetch(`${base}${QUERY_PATH}?tables=SB1&fields=B1_COD&page=1&pageSize=1`, {headers:h});
+      if (!r.ok){
+        const j = await r.json().catch(() => ({}));
+        throw new Error(r.status === 401 ? 'Usuário ou senha inválidos.' : (j.message || `Falha na autenticação (HTTP ${r.status})`));
+      }
+      sessao = {base, usuario, tenant, auth:basic, refresh:null, expira:Infinity};
+      modo = 'Basic';
+    }
+    $('pwd').value = '';                         // senha não fica guardada
+    try{ localStorage.setItem('protheusRestUrl', base); localStorage.setItem('protheusTenant', tenant); }catch{}
+    $('who').textContent = `Usuário: ${usuario} · ${modo}${tenant ? ' · ' + tenant : ''}`;
+    trocarTela(true);
+  }catch(err){
+    msg('msgLogin', err.message.includes('Failed to fetch')
+      ? (location.protocol === 'file:'
+          ? 'Aberta como arquivo local o Protheus recusa a conexão. Abra a página pelo endereço https (GitHub Pages).'
+          : 'Não foi possível conectar. Confira a URL (ex.: https://servidor:porta/rest) e se o REST está no ar.')
+      : err.message, 'err');
+  }finally{ $('btnEntrar').disabled = false; }
+});
+
+$('btnSair').addEventListener('click', () => { sessao = null; trocarTela(false); });
+
+function trocarTela(logado){
+  $('telaLogin').classList.toggle('hidden', logado);
+  $('telaConsulta').classList.toggle('hidden', !logado);
+  $('btnSair').classList.toggle('hidden', !logado);
+  if (!logado){ $('who').textContent=''; $('lista').innerHTML=''; $('detalhe').classList.add('hidden'); msg('msgLogin',''); }
+  else $('termo').focus();
+}
+
+/* ===================== Chamada autenticada ===================== */
+async function api(params){
+  if (Date.now() > sessao.expira - 60000 && sessao.refresh){
+    try{
+      const t = await obterToken(sessao.base, {grant_type:'refresh_token', refresh_token:sessao.refresh});
+      Object.assign(sessao, {auth:`Bearer ${t.access_token}`, refresh:t.refresh_token||sessao.refresh, expira:Date.now()+(t.expires_in||3600)*1000});
+    }catch{ /* segue e deixa o 401 tratar */ }
+  }
+  const headers = {Authorization:sessao.auth};
+  if (sessao.tenant) headers.tenantId = sessao.tenant;
+  const r = await fetch(`${sessao.base}${QUERY_PATH}?${new URLSearchParams(params)}`, {headers});
+  if (r.status === 401){ sessao = null; trocarTela(false); msg('msgLogin','Sessão expirada. Entre novamente.','err'); throw new Error('401'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.message || j.errorMessage || `Erro HTTP ${r.status}`);
+  return j;
+}
+
+/* ===================== Busca de produtos ===================== */
+$('formBusca').addEventListener('submit', e => { e.preventDefault(); termoAtual = $('termo').value.trim().toUpperCase(); pagina = 1; buscar(); });
+$('btnAnt').addEventListener('click', () => { if (pagina > 1){ pagina--; buscar(); } });
+$('btnProx').addEventListener('click', () => { pagina++; buscar(); });
+
+async function buscar(){
+  const t = sqlLit(termoAtual);
+  let where = "SB1.D_E_L_E_T_ = ' '";
+  if (t) where += ` AND (B1_COD LIKE '%${t}%' OR UPPER(B1_DESC) LIKE '%${t}%')`;
+  msg('msgBusca','Consultando…'); $('detalhe').classList.add('hidden');
+  try{
+    const j = await api({tables:'SB1', fields:CAMPOS_LISTA.join(','), where, order:'B1_COD', page:pagina, pageSize:PAGE_SIZE});
+    const itens = j.items || [];
+    $('lista').innerHTML = itens.length ? itens.map(p => `
+      <tr data-cod="${esc(p.B1_COD ?? p.b1_cod)}">
+        <td>${esc(v(p,'B1_COD'))}</td><td>${esc(v(p,'B1_DESC'))}</td><td>${esc(v(p,'B1_TIPO'))}</td>
+        <td>${esc(v(p,'B1_UM'))}</td><td>${esc(v(p,'B1_GRUPO'))}</td><td>${esc(v(p,'B1_POSIPI'))}</td>
+        <td>${esc(v(p,'B1_ORIGEM'))}</td>
+        <td>${v(p,'B1_MSBLQL')==='1' ? '<span class="tag b">Bloqueado</span>' : '<span class="tag a">Ativo</span>'}</td>
+      </tr>`).join('') : '<tr><td colspan="8" style="color:var(--muted)">Nenhum produto encontrado.</td></tr>';
+    $('pagInfo').textContent = `Página ${pagina} · ${itens.length} registro(s)`;
+    $('btnAnt').disabled = pagina <= 1;
+    $('btnProx').disabled = !(j.hasNext ?? itens.length === PAGE_SIZE);
+    msg('msgBusca','');
+  }catch(err){ if (err.message !== '401') msg('msgBusca', err.message, 'err'); }
+}
+
+// genericQuery pode devolver as chaves em maiúsculas ou minúsculas
+function v(o, campo){ const x = o[campo] ?? o[campo.toLowerCase()]; return typeof x === 'string' ? x.trim() : (x ?? ''); }
+
+/* ===================== Detalhe + estoque/custo (SB2) ===================== */
+$('lista').addEventListener('click', async e => {
+  const tr = e.target.closest('tr[data-cod]'); if (!tr) return;
+  const cod = sqlLit(tr.dataset.cod);
+  const box = $('detalhe'); box.classList.remove('hidden'); box.innerHTML = 'Carregando detalhes…';
+  try{
+    const todos = Object.values(CAMPOS_DETALHE).flatMap(Object.keys);
+    const [pj, ej] = await Promise.all([
+      api({tables:'SB1', fields:todos.join(','), where:`SB1.D_E_L_E_T_ = ' ' AND B1_COD = '${cod}'`, page:1, pageSize:1}),
+      api({tables:'SB2', fields:CAMPOS_SB2.join(','), where:`SB2.D_E_L_E_T_ = ' ' AND B2_COD = '${cod}'`, order:'B2_FILIAL,B2_LOCAL', page:1, pageSize:100})
+    ]);
+    const p = (pj.items || [])[0] || {};
+    const est = ej.items || [];
+    let h = `<h3>${esc(v(p,'B1_COD'))} — ${esc(v(p,'B1_DESC'))}</h3>`;
+    for (const [sec, campos] of Object.entries(CAMPOS_DETALHE)){
+      h += `<div class="sec">${sec}</div><div class="grid">` +
+        Object.entries(campos).map(([c,l]) => `<div><span>${l}</span>${esc(c==='B1_MSBLQL' ? (v(p,c)==='1'?'Sim':'Não') : v(p,c)) || '—'}</div>`).join('') + '</div>';
+    }
+    const tq = est.reduce((s,x)=>s+Number(v(x,'B2_QATU')||0),0);
+    h += `<div class="sec">Estoque / custo</div>
+      <table><thead><tr><th>Filial</th><th>Armazém</th><th class="num">Saldo atual</th><th class="num">Reservado</th>
+      <th class="num">Empenhado</th><th class="num">Custo médio</th><th class="num">Valor em estoque</th></tr></thead><tbody>` +
+      (est.length ? est.map(x => `<tr><td>${esc(v(x,'B2_FILIAL'))}</td><td>${esc(v(x,'B2_LOCAL'))}</td>
+        <td class="num">${fmtNum(v(x,'B2_QATU'),2)}</td><td class="num">${fmtNum(v(x,'B2_RESERVA'),2)}</td>
+        <td class="num">${fmtNum(v(x,'B2_QEMP'),2)}</td><td class="num">${fmtNum(v(x,'B2_CM1'),4)}</td>
+        <td class="num">${fmtNum(v(x,'B2_VATU1'),2)}</td></tr>`).join('') +
+        `<tr><td colspan="2"><b>Total</b></td><td class="num"><b>${fmtNum(tq,2)}</b></td><td colspan="4"></td></tr>`
+      : '<tr><td colspan="7" style="color:var(--muted)">Sem saldo cadastrado (SB2).</td></tr>') + '</tbody></table>';
+    box.innerHTML = h;
+    box.scrollIntoView({behavior:'smooth', block:'start'});
+  }catch(err){ if (err.message !== '401') box.innerHTML = `<div class="msg err">${esc(err.message)}</div>`; }
+});
+
+// Lembra URL e empresa/filial neste navegador (nunca a senha)
+try{
+  $('url').value = localStorage.getItem('protheusRestUrl') || '';
+  $('tenant').value = localStorage.getItem('protheusTenant') || '';
+}catch{}
+
+function msg(id, texto, tipo=''){ const el = $(id); el.textContent = texto; el.className = 'msg ' + tipo; }
+</script>
+</body>
+</html>
